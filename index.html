@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CFO Bot</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #2c3e50 0%, #3498db 100%);
+            color: white;
+            padding: 25px;
+            text-align: center;
+        }
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            min-height: 600px;
+        }
+        .chat-section {
+            border-right: 1px solid #e0e0e0;
+            display: flex;
+            flex-direction: column;
+        }
+        .chat-messages {
+            flex: 1;
+            height: 500px;
+            overflow-y: auto;
+            padding: 20px;
+            background: #f8f9fa;
+        }
+        .message {
+            margin-bottom: 15px;
+            padding: 12px 16px;
+            border-radius: 18px;
+            max-width: 85%;
+            word-wrap: break-word;
+        }
+        .bot {
+            background: #e9ecef;
+            color: #212529;
+            border-bottom-left-radius: 5px;
+        }
+        .user {
+            background: #3498db;
+            color: white;
+            margin-left: auto;
+            border-bottom-right-radius: 5px;
+        }
+        .chat-input {
+            display: flex;
+            gap: 10px;
+            padding: 20px;
+            background: white;
+            border-top: 1px solid #e0e0e0;
+        }
+        #userInput {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 25px;
+            font-size: 14px;
+            outline: none;
+        }
+        .chat-input button {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        #sendBtn {
+            background: #3498db;
+            color: white;
+        }
+        #resetBtn {
+            background: #e74c3c;
+            color: white;
+        }
+        .chart-section {
+            padding: 20px;
+            background: white;
+        }
+        .chart-section h3 {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #2c3e50;
+        }
+        #costChart {
+            max-width: 100%;
+            height: auto;
+            margin-bottom: 30px;
+        }
+        .history {
+            border-top: 1px solid #e0e0e0;
+            padding-top: 20px;
+        }
+        .history h4 {
+            margin-bottom: 15px;
+            color: #2c3e50;
+        }
+        #historyList {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .save-btn, .export-btn {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            margin-top: 10px;
+            margin-right: 10px;
+        }
+        .export-btn {
+            background: #27ae60;
+        }
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>🤖 CFO Bot</h1>
+        <p>AWS vs Google Cloud vs Azure</p>
+    </div>
+    <div class="main-content">
+        <div class="chat-section">
+            <div class="chat-messages" id="chatMessages"></div>
+            <div class="chat-input">
+                <input type="number" id="userInput" placeholder="Enter number...">
+                <button id="sendBtn">Send</button>
+                <button id="resetBtn">Reset</button>
+            </div>
+        </div>
+        <div class="chart-section">
+            <h3>📊 Monthly Cost Comparison</h3>
+            <canvas id="costChart" width="400" height="300"></canvas>
+            <div class="history">
+                <h4>📜 History</h4>
+                <div id="historyList"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    (function() {
+        const pricing = {
+            'AWS': { cpuPerHour: 0.04, ramPerGbHour: 0.01, storagePerGbMonth: 0.10 },
+            'Google Cloud': { cpuPerHour: 0.045, ramPerGbHour: 0.009, storagePerGbMonth: 0.08 },
+            'Azure': { cpuPerHour: 0.042, ramPerGbHour: 0.011, storagePerGbMonth: 0.09 }
+        };
+        const HOURS_PER_MONTH = 730;
+        
+        let step = 0;
+        let userConfig = { vmCount: 0, vcpuPerVm: 0, ramPerVm: 0, storageGb: 0 };
+        let currentCosts = null;
+        let chart = null;
+        let history = [];
+        
+        const messagesDiv = document.getElementById('chatMessages');
+        const userInput = document.getElementById('userInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const historyDiv = document.getElementById('historyList');
+        
+        function addMessage(text, isUser = false) {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message ${isUser ? 'user' : 'bot'}`;
+            msgDiv.innerHTML = text;
+            messagesDiv.appendChild(msgDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        
+        function calculateAllCosts() {
+            const costs = {};
+            for (const [provider, prices] of Object.entries(pricing)) {
+                const compute = (userConfig.vmCount * userConfig.vcpuPerVm * prices.cpuPerHour + 
+                                 userConfig.vmCount * userConfig.ramPerVm * prices.ramPerGbHour) * HOURS_PER_MONTH;
+                const storage = userConfig.storageGb * prices.storagePerGbMonth;
+                const total = compute + storage;
+                costs[provider] = { compute, storage, total };
+            }
+            currentCosts = costs;
+            updateChart();
+            return costs;
+        }
+        
+        function updateChart() {
+            if (!currentCosts) return;
+            const ctx = document.getElementById('costChart').getContext('2d');
+            const providers = Object.keys(currentCosts);
+            const totals = providers.map(p => currentCosts[p].total);
+            if (chart) chart.destroy();
+            chart = new Chart(ctx, {
+                type: 'bar',
+                data: { labels: providers, datasets: [{ label: 'Monthly Cost ($)', data: totals, backgroundColor: '#3498db' }] },
+                options: { responsive: true, scales: { y: { beginAtZero: true } } }
+            });
+        }
+        
+        function saveToHistory() {
+            console.log('saveToHistory called');
+            if (!currentCosts) {
+                addMessage('❌ Please calculate first');
+                return;
+            }
+            const item = {
+                id: Date.now(),
+                date: new Date().toLocaleString(),
+                vmCount: userConfig.vmCount,
+                vcpu: userConfig.vcpuPerVm,
+                ram: userConfig.ramPerVm,
+                storage: userConfig.storageGb,
+                awsCost: currentCosts['AWS'].total,
+                gcpCost: currentCosts['Google Cloud'].total,
+                azureCost: currentCosts['Azure'].total
+            };
+            history.unshift(item);
+            if (history.length > 10) history.pop();
+            localStorage.setItem('cfo_history', JSON.stringify(history));
+            updateHistoryDisplay();
+            addMessage('✅ Calculation saved!');
+        }
+        
+        function updateHistoryDisplay() {
+            if (!historyDiv) return;
+            if (history.length === 0) {
+                historyDiv.innerHTML = '<p style="color: #999;">No saved calculations</p>';
+                return;
+            }
+            historyDiv.innerHTML = history.map(item => `
+                <div style="background: #f8f9fa; padding: 8px; margin-bottom: 8px; border-radius: 8px; cursor: pointer;" onclick="window.loadFromHistory(${item.id})">
+                    <strong>${item.date}</strong><br>
+                    VM:${item.vmCount} CPU:${item.vcpu} RAM:${item.ram}GB STOR:${item.storage}GB<br>
+                    💰 $${item.awsCost.toFixed(2)}/month
+                </div>
+            `).join('');
+        }
+        
+        window.loadFromHistory = function(id) {
+            const item = history.find(h => h.id === id);
+            if (item) {
+                userConfig = {
+                    vmCount: item.vmCount,
+                    vcpuPerVm: item.vcpu,
+                    ramPerVm: item.ram,
+                    storageGb: item.storage
+                };
+                calculateAllCosts();
+                showResult();
+                addMessage(`📂 Loaded from ${item.date}`);
+            }
+        };
+        
+        function loadHistory() {
+            const saved = localStorage.getItem('cfo_history');
+            if (saved) {
+                history = JSON.parse(saved);
+                updateHistoryDisplay();
+            }
+        }
+        
+        function showResult() {
+            const costs = currentCosts;
+            let cheapest = Object.keys(costs).reduce((a, b) => costs[a].total < costs[b].total ? a : b);
+            const resultHtml = `
+                <strong>📊 CONFIGURATION:</strong><br>
+                VM: ${userConfig.vmCount} | vCPU: ${userConfig.vcpuPerVm} | RAM: ${userConfig.ramPerVm}GB | Storage: ${userConfig.storageGb}GB<br><br>
+                <strong>💰 MONTHLY COST:</strong><br>
+                • AWS: $${costs['AWS'].total.toFixed(2)}<br>
+                • Google Cloud: $${costs['Google Cloud'].total.toFixed(2)}<br>
+                • Azure: $${costs['Azure'].total.toFixed(2)}<br><br>
+                <strong>🏆 BEST: ${cheapest} ($${costs[cheapest].total.toFixed(2)})</strong><br><br>
+                <button class="save-btn" id="saveBtn">💾 Save</button>
+                <button class="export-btn" id="exportBtn">📎 Export CSV</button>
+            `;
+            addMessage(resultHtml);
+            
+            setTimeout(() => {
+                const saveBtn = document.getElementById('saveBtn');
+                if (saveBtn) {
+                    saveBtn.onclick = function() {
+                        saveToHistory();
+                    };
+                }
+                const exportBtn = document.getElementById('exportBtn');
+                if (exportBtn) {
+                    exportBtn.onclick = function() {
+                        exportToCSV();
+                    };
+                }
+            }, 100);
+        }
+        
+        function exportToCSV() {
+            if (!currentCosts) return;
+            const rows = [
+                ['Parameter', 'Value'],
+                ['VM Count', userConfig.vmCount],
+                ['vCPU per VM', userConfig.vcpuPerVm],
+                ['RAM per VM (GB)', userConfig.ramPerVm],
+                ['Storage (GB)', userConfig.storageGb],
+                ['Date', new Date().toLocaleString()],
+                ['', ''],
+                ['Provider', 'Total ($)'],
+                ['AWS', currentCosts['AWS'].total.toFixed(2)],
+                ['Google Cloud', currentCosts['Google Cloud'].total.toFixed(2)],
+                ['Azure', currentCosts['Azure'].total.toFixed(2)]
+            ];
+            const csv = rows.map(row => row.join(',')).join('\n');
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `cfo_${Date.now()}.csv`;
+            link.click();
+            URL.revokeObjectURL(link.href);
+            addMessage('✅ CSV exported');
+        }
+        
+        function processInput(value) {
+            const num = parseFloat(value);
+            if (isNaN(num)) { addMessage('❌ Enter a number'); return; }
+            
+            if (step === 0) {
+                if (num < 1 || num > 50) { addMessage('❌ Enter 1-50'); return; }
+                userConfig.vmCount = num;
+                addMessage(`✅ ${num} VM. Question 2: vCPU per VM? (1-16)`);
+            } else if (step === 1) {
+                if (num < 1 || num > 16) { addMessage('❌ Enter 1-16'); return; }
+                userConfig.vcpuPerVm = num;
+                addMessage(`✅ ${num} vCPU. Question 3: RAM per VM (GB)? (1-64)`);
+            } else if (step === 2) {
+                if (num < 1 || num > 64) { addMessage('❌ Enter 1-64'); return; }
+                userConfig.ramPerVm = num;
+                addMessage(`✅ ${num} GB RAM. Question 4: Storage (GB)? (10-5000)`);
+            } else if (step === 3) {
+                if (num < 10 || num > 5000) { addMessage('❌ Enter 10-5000'); return; }
+                userConfig.storageGb = num;
+                addMessage(`✅ ${num} GB. Calculating...`);
+                calculateAllCosts();
+                showResult();
+            }
+            step++;
+        }
+        
+        function resetChat() {
+            step = 0;
+            userConfig = { vmCount: 0, vcpuPerVm: 0, ramPerVm: 0, storageGb: 0 };
+            currentCosts = null;
+            messagesDiv.innerHTML = '';
+            addMessage('🔄 Reset. Question 1: How many VMs? (1-50)');
+            if (chart) { chart.destroy(); chart = null; }
+        }
+        
+        sendBtn.onclick = function() {
+            const val = userInput.value.trim();
+            if (val === '') return;
+            addMessage(val, true);
+            processInput(val);
+            userInput.value = '';
+        };
+        
+        resetBtn.onclick = resetChat;
+        
+        userInput.onkeypress = function(e) {
+            if (e.key === 'Enter') sendBtn.click();
+        };
+        
+        addMessage('🤖 Welcome! Question 1: How many VMs? (1-50)');
+        loadHistory();
+    })();
+</script>
+</body>
+</html>
